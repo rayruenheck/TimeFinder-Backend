@@ -10,6 +10,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config["MONGO_URI"] = os.getenv("MONGODB_URI")
+app.secret_key = os.getenv("SECRET_KEY")
 
 
 
