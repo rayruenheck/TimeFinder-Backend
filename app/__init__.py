@@ -9,7 +9,7 @@ from app.auth.users import users_bp
 load_dotenv()
 
 app = Flask(__name__)
-app.config["MONGO_URI"] = os.environ.get('MONGO_URI')
+app.config["MONGO_URI"] = os.getenv("MONGODB_URI")
 
 
 
