@@ -1,6 +1,6 @@
 from flask import request, jsonify, session
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from . import users_bp
 from bson.json_util import dumps
 from pymongo import MongoClient
@@ -19,45 +19,6 @@ GOOGLE_CALENDAR_API_BASE_URL = os.getenv("GOOGLE_CALENDAR_API_BASE_URL")
 
 users_collection = db.users
 tasks_collection = db.tasks
-
-# def get_user_info(userId):
-#     user = users_collection.find_one({'idToken' : userId})
-
-#     if not user:
-#         print('user not found')
-#     else:
-#        return user
-
-# def get_user_task(userId):
-   
-#     today_date = datetime.now().strftime("%Y-%m-%d")
-    
-    
-#     tasks = tasks_collection.find_one({"userId": userId, "date": today_date})
-
-#     if tasks:
-#         return tasks
-#     else:
-#         print('No tasks found for user on today\'s date.')
-#         return None
-
-
-# def find_optimal_slots(access_token, tasks):
-#     """Analyze Google Calendar to find optimal slots for tasks."""
-#     headers = {'Authorization': f'Bearer {access_token}'}
-#     # Example: Query the calendar for events on the current day
-#     today = datetime.now().strftime("%Y-%m-%d")
-#     params = {
-#         'timeMin': f'{today}T00:00:00Z',
-#         'timeMax': f'{today}T23:59:59Z',
-#         'singleEvents': 'true',
-#         'orderBy': 'startTime',
-#     }
-#     response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/primary/events", headers=headers, params=params)
-#     events = response.json().get('items', [])
-#     # Logic to find optimal slots based on events and tasks
-#     return events
-
 
 
 @users_bp.post('/users')
@@ -110,49 +71,59 @@ def create_or_update_tasks():
     else:
         return jsonify(message="No changes made to task cluster"), 200
     
-
-@users_bp.post('/schedule_tasks')
+@users_bp.route('/schedule_tasks', methods=['POST'])
 def schedule_tasks():
-    user_id = session.get("userId")
-    if not user_id:
-        return jsonify({'error': 'User ID is required'}), 400
-
-    user = users_collection.find_one({'idToken': user_id})
+    data = request.get_json()
+    user = users_collection.find_one({"idToken": data.get("userId")})
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({"error": "User not found"}), 404
 
-    today_date = datetime.now().strftime("%Y-%m-%d")
-    tasks = tasks_collection.find_one({"userId": user_id, "date": today_date})
-    if not tasks:
-        return jsonify({'error': 'No tasks found for today'}), 404
+    tasks = tasks_collection.find_one({"userId": data.get("userId"), "date": datetime.now().strftime("%Y-%m-%d")})
+    if not tasks or 'tasks' not in tasks:
+        return jsonify({"error": "No tasks found for today"}), 404
 
-    access_token = user.get('accessToken')
+    access_token = user.get("accessToken")
     if not access_token:
-        return jsonify({'error': 'Access token is missing'}), 400
+        return jsonify({"error": "Missing access token"}), 400
 
-    
-    return find_optimal_slots_and_schedule_tasks(access_token, tasks)
+    events = find_optimal_slots(access_token)
+    return jsonify({"events": events})
 
-
-def find_optimal_slots_and_schedule_tasks(access_token, tasks):
-    """Connect to Google Calendar API, find optimal time slots, and schedule tasks."""
-    headers = {'Authorization': f'Bearer {access_token}'}
+def find_optimal_slots(access_token):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
     params = {
-        'timeMin': f'{datetime.now().strftime("%Y-%m-%d")}T00:00:00Z',
-        'timeMax': f'{datetime.now().strftime("%Y-%m-%d")}T23:59:59Z',
-        'singleEvents': True,
-        'orderBy': 'startTime'
+        "timeMin": f"{today}T00:00:00Z",
+        "timeMax": f"{today}T23:59:59Z",
+        "singleEvents": True,
+        "orderBy": "startTime"
     }
     response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/primary/events", headers=headers, params=params)
+    if response.status_code != 200:
+        return {"error": "Failed to fetch calendar events", "details": response.text}
+
     events = response.json().get('items', [])
+    # Assume working hours from 9 AM to 5 PM
+    start_of_day = datetime.datetime.strptime(f"{today} 09:00", '%Y-%m-%d %H:%M')
+    end_of_day = datetime.datetime.strptime(f"{today} 17:00", '%Y-%m-%d %H:%M')
+    slots = [(start_of_day, end_of_day)]
 
-    # Add logic to find optimal slots based on events and tasks logic
-    # For example, check for free slots according to task priorities and user concentration times
+    for event in events:
+        start = datetime.datetime.fromisoformat(event['start']['dateTime'][:-1])
+        end = datetime.datetime.fromisoformat(event['end']['dateTime'][:-1])
+        new_slots = []
+        for slot_start, slot_end in slots:
+            if start > slot_end or end < slot_start:
+                # No overlap
+                new_slots.append((slot_start, slot_end))
+            else:
+                # Adjust current slot based on the event time
+                if slot_start < start:
+                    new_slots.append((slot_start, start))
+                if slot_end > end:
+                    new_slots.append((end, slot_end))
+        slots = new_slots
 
-    # Dummy logic for inserting tasks into the calendar (to be replaced with actual logic)
-    scheduled_events = []  # This would be your list of scheduled tasks
-    for task in tasks['tasks']:  # Assuming tasks are stored in a 'tasks' key
-        # This is a simplified placeholder for where you'd insert your task scheduling logic
-        scheduled_events.append(task)
-
-    return jsonify({'message': 'Tasks scheduled successfully', 'events': scheduled_events})
+    # Convert datetime slots to string for better readability
+    available_slots = [(slot[0].time().strftime('%H:%M'), slot[1].time().strftime('%H:%M')) for slot in slots if slot[0] != slot[1]]
+    return available_slots
