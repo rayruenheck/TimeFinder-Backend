@@ -78,6 +78,7 @@ def create_or_update_tasks():
 
 def parse_time(time_str, date, tz):
     """Converts a time string to a timezone-aware datetime object."""
+    print(f"from parse time {tz.localize(datetime.combine(date, datetime.strptime(time_str, "%H:%M").time()))}")
     return tz.localize(datetime.combine(date, datetime.strptime(time_str, "%H:%M").time()))
 
 def get_user_timezone(access_token):
@@ -88,11 +89,29 @@ def get_user_timezone(access_token):
 
 def get_concentration_time(access_token):
     """Retrieves user-specific concentration times from the database."""
-    user_data = users_collection.find_one({"idToken": access_token})
+    user_data = users_collection.find_one({"accessToken": access_token})
     if user_data and "concentration_time" in user_data:
         times = user_data["concentration_time"]
         return (times["start"], times["end"])
     return None
+
+@users_bp.post('/concentration_time')
+def update_concentration_time():
+    data = request.get_json()
+    if not data or 'user_id' not in data or 'start' not in data or 'end' not in data:
+        return jsonify({"status": "error", "message": "Invalid data provided."}), 400
+
+    user_id = data['user_id']
+    start = data['start']
+    end = data['end']
+
+    
+    users_collection.update_one(
+        {"idToken": user_id},
+        {"$set": {"concentration_time": {"start": start, "end": end}}},
+        upsert=True
+    )
+    return jsonify({"status": "success", "message": "Concentration times updated.", "concentration_time": {"start": start, "end": end}})
 
 @users_bp.post('/schedule_tasks')
 def schedule_tasks():
@@ -154,6 +173,11 @@ def calculate_slot_status(slots, access_token, timezone):
             user_start_datetime = parse_time(user_concentration_times[0], today_date, tz)
             user_end_datetime = parse_time(user_concentration_times[1], today_date, tz)
             is_concentration_time = user_start_datetime <= slot_start_local and slot_end_local <= user_end_datetime
+            
+            print(f"user_start_datetime {user_start_datetime}")
+            print(f"user_end_datetime {user_end_datetime}")
+            print(f"slot_end_local {slot_end_local}")
+            print(f"slot_start_local {slot_start_local}")
 
         all_slots[time_range] = {'available': True, 'concentration_time': is_concentration_time}
 
