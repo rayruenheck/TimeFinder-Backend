@@ -71,9 +71,6 @@ def create_or_update_tasks():
         return jsonify(message=f"Task cluster {action} successfully on {today_date}"), 200 if action == "updated" else 201
     else:
         return jsonify(message="No changes made to task cluster"), 200
-    
-
-
 
 
 def parse_time(time_str, date, tz):
@@ -140,9 +137,14 @@ def schedule_tasks():
 
 def find_optimal_slots(access_token):
     """Identifies open time slots by checking Google Calendar events against user concentration times."""
+    """Identifies open time slots by checking Google Calendar events against user concentration times."""
     user_timezone = get_user_timezone(access_token)
     local_timezone = pytz.timezone(user_timezone)
     today = datetime.now(tz=local_timezone).strftime('%Y-%m-%d')
+    response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/primary/events", headers={
+        "Authorization": f"Bearer {access_token}"
+    }, params={"timeMin": f"{today}T00:00:00Z", "timeMax": f"{today}T23:59:59Z", "singleEvents": True, "orderBy": "startTime"})
+
     response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/primary/events", headers={
         "Authorization": f"Bearer {access_token}"
     }, params={"timeMin": f"{today}T00:00:00Z", "timeMax": f"{today}T23:59:59Z", "singleEvents": True, "orderBy": "startTime"})
@@ -157,8 +159,11 @@ def find_optimal_slots(access_token):
     for event in events:
         event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone)
         event_end = datetime.fromisoformat(event['end']['dateTime']).astimezone(local_timezone)
+        event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone)
+        event_end = datetime.fromisoformat(event['end']['dateTime']).astimezone(local_timezone)
         new_slots = []
         for slot in slots:
+            new_slots.extend(adjust_slot_for_event(slot, event_start, event_end))
             new_slots.extend(adjust_slot_for_event(slot, event_start, event_end))
         slots = new_slots
 
