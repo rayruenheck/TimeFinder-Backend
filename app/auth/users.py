@@ -78,7 +78,6 @@ def create_or_update_tasks():
 
 def parse_time(time_str, date, tz):
     """Converts a time string to a timezone-aware datetime object."""
-    print(f"from parse time {tz.localize(datetime.combine(date, datetime.strptime(time_str, "%H:%M").time()))}")
     return tz.localize(datetime.combine(date, datetime.strptime(time_str, "%H:%M").time()))
 
 def get_user_timezone(access_token):
@@ -159,27 +158,25 @@ def find_optimal_slots(access_token):
     return calculate_slot_status(slots, access_token, user_timezone)
 
 def calculate_slot_status(slots, access_token, timezone):
-    """Determines the status of each slot regarding availability and concentration alignment."""
+    """Determines the status of each slot regarding availability and concentration alignment, breaking down into 30-minute intervals."""
     all_slots = {}
     user_concentration_times = get_concentration_time(access_token)
     tz = pytz.timezone(timezone)
     today_date = datetime.now(tz).date()
 
     for slot_start, slot_end in slots:
-        slot_start_local, slot_end_local = slot_start.astimezone(tz), slot_end.astimezone(tz)
-        time_range = f"{slot_start_local.strftime('%H:%M')} - {slot_end_local.strftime('%H:%M')}"
-        is_concentration_time = False
-        if user_concentration_times:
-            user_start_datetime = parse_time(user_concentration_times[0], today_date, tz)
-            user_end_datetime = parse_time(user_concentration_times[1], today_date, tz)
-            is_concentration_time = user_start_datetime <= slot_start_local and slot_end_local <= user_end_datetime
-            
-            print(f"user_start_datetime {user_start_datetime}")
-            print(f"user_end_datetime {user_end_datetime}")
-            print(f"slot_end_local {slot_end_local}")
-            print(f"slot_start_local {slot_start_local}")
+        current_time = slot_start
+        while current_time < slot_end:
+            slot_end_interval = min(current_time + timedelta(minutes=30), slot_end)
+            time_range = f"{current_time.strftime('%H:%M')} - {slot_end_interval.strftime('%H:%M')}"
+            is_concentration_time = False
+            if user_concentration_times:
+                user_start_datetime = parse_time(user_concentration_times[0], today_date, tz)
+                user_end_datetime = parse_time(user_concentration_times[1], today_date, tz)
+                is_concentration_time = user_start_datetime <= current_time and slot_end_interval <= user_end_datetime
 
-        all_slots[time_range] = {'available': True, 'concentration_time': is_concentration_time}
+            all_slots[time_range] = {'available': True, 'concentration_time': is_concentration_time}
+            current_time += timedelta(minutes=30)
 
     return all_slots
 
@@ -192,3 +189,25 @@ def adjust_slot_for_event(slot, event_start, event_end):
     if slot_end > event_end:
         new_slots.append((max(slot_start, event_end), slot_end))
     return new_slots if new_slots else [slot]
+
+# @users_bp.route('/get_primary_calendar_id', methods=['POST'])
+# def get_primary_calendar_id():
+#     """
+#     API endpoint that fetches the primary calendar ID for the user.
+#     Expects a JSON payload with an 'access_token'.
+#     """
+#     data = request.get_json()
+#     access_token = data.get('access_token')
+#     if not access_token:
+#         return jsonify({"error": "Access token is required"}), 400
+    
+#     headers = {"Authorization": f"Bearer {access_token}"}
+#     response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/users/me/calendarList", headers=headers)
+#     if response.status_code == 200:
+#         calendars = response.json().get('items', [])
+#         for calendar in calendars:
+#             if calendar.get('primary', False):  
+#                 return jsonify({"calendar_id": calendar.get('id', 'primary')})  
+#         return jsonify({"calendar_id": "primary"}), 200  
+#     else:
+#         return jsonify({"error": "Failed to retrieve calendar information", "status_code": response.status_code}), 500
