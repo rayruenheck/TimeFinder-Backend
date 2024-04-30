@@ -15,7 +15,7 @@ app.secret_key = os.getenv("SECRET_KEY")
 
 
 CORS(app, supports_credentials=True)
-
+app.config['DEBUG'] = True
 
 mongo = PyMongo(app)
 
