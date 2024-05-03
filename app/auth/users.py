@@ -50,27 +50,28 @@ def create_or_update_user():
 def create_or_update_tasks():
     data = request.get_json()
 
-    if not data or 'tasks' not in data or 'userId' not in data:
+    if not data or 'tasks' not in data or 'sub' not in data:
         return jsonify(message="Missing required data"), 400
 
     tasks = data['tasks']
-    userId = data['userId']
+    sub = data['sub']
     today_date = datetime.now().strftime("%Y-%m-%d")
-    session['userId'] = userId   
+   
 
-    
+    # Append new tasks to the existing tasks array for the same day and user
     result = tasks_collection.update_one(
-        {"userId": userId,},
-        {"$set": {"tasks": tasks, "date": today_date}},
+        {"sub": sub, "date": today_date},  # Ensure the update is for the same day and user
+        {"$addToSet": {"tasks": {"$each": tasks}}},  # Append all new tasks
         upsert=True
     )
 
-    
     if result.matched_count > 0 or result.upserted_id is not None:
         action = "updated" if result.matched_count > 0 else "created"
         return jsonify(message=f"Task cluster {action} successfully on {today_date}"), 200 if action == "updated" else 201
     else:
         return jsonify(message="No changes made to task cluster"), 200
+
+
 
 
 def parse_time(time_str, date, tz):
@@ -94,16 +95,16 @@ def get_concentration_time(access_token):
 @users_bp.post('/concentration_time')
 def update_concentration_time():
     data = request.get_json()
-    if not data or 'user_id' not in data or 'start' not in data or 'end' not in data:
+    if not data or 'sub' not in data or 'start' not in data or 'end' not in data:
         return jsonify({"status": "error", "message": "Invalid data provided."}), 400
 
-    user_id = data['user_id']
+    sub = data['sub']
     start = data['start']
     end = data['end']
 
     
     users_collection.update_one(
-        {"idToken": user_id},
+        {"sub": sub},
         {"$set": {"concentration_time": {"start": start, "end": end}}},
         upsert=True
     )
@@ -113,11 +114,11 @@ def update_concentration_time():
 def schedule_tasks():
     """Endpoint to schedule tasks based on user availability and concentration times."""
     data = request.get_json()
-    user = users_collection.find_one({"idToken": data.get("userId")})
+    user = users_collection.find_one({"sub": data.get("sub")})
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    tasks = tasks_collection.find_one({"userId": data.get("userId"), "date": datetime.now().strftime("%Y-%m-%d")})
+    tasks = tasks_collection.find_one({"sub": data.get("sub"), "date": datetime.now().strftime("%Y-%m-%d")})
     if not tasks or 'tasks' not in tasks:
         return jsonify({"error": "No tasks found for today"}), 404
 
