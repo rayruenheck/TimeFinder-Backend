@@ -22,6 +22,10 @@ users_collection = db.users
 tasks_collection = db.tasks
 
 
+
+# CREATING AND UPDATING USER INFO
+
+
 @users_bp.post('/users')
 def create_or_update_user():
     user_data = request.get_json()
@@ -74,31 +78,7 @@ def create_or_update_tasks():
 
 
 
-def parse_time(time_str, date, tz):
-    """Converts a time string to a timezone-aware datetime object, handling different time formats."""
-    try:
-        # First, try parsing with hours and minutes only
-        time = datetime.strptime(time_str, "%H:%M").time()
-    except ValueError:
-        # If there's an error, it might be because the string includes seconds
-        time = datetime.strptime(time_str, "%H:%M:%S").time()
-    
-    # Localize the combined datetime object
-    return tz.localize(datetime.combine(date, time))
 
-def get_user_timezone(access_token):
-    """Fetches the user's timezone from their Google Calendar settings."""
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/users/me/calendarList/primary", headers=headers)
-    return response.json().get('timeZone', 'UTC') if response.status_code == 200 else 'UTC'
-
-def get_concentration_time(access_token):
-    """Retrieves user-specific concentration times from the database."""
-    user_data = users_collection.find_one({"accessToken": access_token})
-    if user_data and "concentration_time" in user_data:
-        times = user_data["concentration_time"]
-        return (times["start"], times["end"])
-    return None
 
 @users_bp.post('/concentration_time')
 def update_concentration_time():
@@ -117,6 +97,35 @@ def update_concentration_time():
         upsert=True
     )
     return jsonify({"status": "success", "message": "Concentration times updated.", "concentration_time": {"start": start, "end": end}})
+
+
+# SCHEDULING AND SCHEDULING LOGIC
+
+def parse_time(time_str, date, tz):
+    
+    try:
+        time = datetime.strptime(time_str, "%H:%M").time()
+    except ValueError:
+        time = datetime.strptime(time_str, "%H:%M:%S").time()
+    return tz.localize(datetime.combine(date, time))
+
+
+
+def get_concentration_time(access_token):
+    
+    user_data = users_collection.find_one({"accessToken": access_token})
+    if user_data and "concentration_time" in user_data:
+        times = user_data["concentration_time"]
+        return (times["start"], times["end"])
+    return None
+
+def get_user_timezone(access_token):
+    
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/users/me/calendarList/primary", headers=headers)
+    return response.json().get('timeZone', 'UTC') if response.status_code == 200 else 'UTC'
+
+
 
 def create_calendar_event(access_token, calendar_id, event_details):
     url = f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/{calendar_id}/events"
@@ -143,7 +152,7 @@ def schedule_tasks():
     if not access_token:
         return jsonify({"error": "Missing access token"}), 400
 
-    # Fetch user timezone
+   
     user_timezone = get_user_timezone(access_token)
     tz = pytz.timezone(user_timezone)
 
@@ -151,7 +160,7 @@ def schedule_tasks():
     events = find_optimal_slots(access_token)
     scheduled_tasks = schedule_tasks_in_slots(sorted_tasks, events)
 
-    # Create events in Google Calendar
+    
     calendar_id = 'primary'  # or user's email
     event_responses = []
     for task in scheduled_tasks:
@@ -198,7 +207,7 @@ def find_optimal_slots(access_token):
     return calculate_slot_status(slots, access_token, user_timezone)
 
 def calculate_slot_status(slots, access_token, timezone):
-    """Determines the status of each slot regarding availability and concentration alignment, breaking down into 30-minute intervals."""
+    
     all_slots = []
     user_concentration_times = get_concentration_time(access_token)
     tz = pytz.timezone(timezone)
@@ -226,7 +235,7 @@ def calculate_slot_status(slots, access_token, timezone):
     return all_slots
 
 def adjust_slot_for_event(slot, event_start, event_end):
-    """Adjusts slots based on overlapping with an event."""
+   
     slot_start, slot_end = slot
     new_slots = []
     if slot_start < event_start:
@@ -236,7 +245,7 @@ def adjust_slot_for_event(slot, event_start, event_end):
     return new_slots if new_slots else [slot]
 
 def sort_tasks(tasks):
-    """Sort tasks by priority from High to Low."""
+
     priority_map = {'high': 3, 'medium': 2, 'low': 1}  
     return sorted(tasks, key=lambda task: priority_map[task['priority']], reverse=True)
 
@@ -244,7 +253,7 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
     scheduled_tasks = []
     medium_concentration_tasks = []
 
-    # Process high and low concentration tasks first
+    
     for task in sorted_tasks:
         if task['concentration'] == 'high':
             target_slots = [slot for slot in available_slots if slot['concentration_time'] and slot['available']]
@@ -259,9 +268,9 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
                 schedule_task(task, slot, scheduled_tasks, available_slots)
                 break
 
-    # Process medium concentration tasks after high and low
+    
     for task in medium_concentration_tasks:
-        # Try to schedule in concentration time slots first
+       
         target_slots = [slot for slot in available_slots if slot['concentration_time'] and slot['available']]
         scheduled = False
         for slot in target_slots:
@@ -270,7 +279,7 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
                 scheduled = True
                 break
 
-        # If not scheduled, schedule in any available slot
+        
         if not scheduled:
             for slot in [slot for slot in available_slots if slot['available']]:
                 if fits_time_slot(task, slot, available_slots):
@@ -279,7 +288,7 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
 
     return scheduled_tasks
 def schedule_task(task, slot, scheduled_tasks, available_slots):
-    """Helper function to schedule a task in a given slot and mark slots as used."""
+    
     start_time = slot['start'].strftime('%Y-%m-%d %H:%M:%S')
     end_time = (slot['start'] + timedelta(minutes=int(task['time']))).strftime('%Y-%m-%d %H:%M:%S')
     scheduled_tasks.append({
@@ -287,7 +296,7 @@ def schedule_task(task, slot, scheduled_tasks, available_slots):
         'start_time': start_time,
         'end_time': end_time
     })
-    # Mark slots as used
+    
     mark_slots_as_used(task, slot, available_slots)
 
 def mark_slots_as_used(task, chosen_slot, slots):
@@ -309,7 +318,7 @@ def fits_time_slot(task, slot, available_slots):
     start_index = available_slots.index(slot)
     accumulated_time = timedelta()
 
-    # Attempt to accumulate enough time across consecutive slots
+    
     for i in range(start_index, len(available_slots)):
         if not available_slots[i]['available']:
             break
@@ -337,3 +346,49 @@ def update_slot_availability(slots, chosen_slot, task_time):
     if chosen_slot['start'] >= chosen_slot['end']:
         slots.remove(chosen_slot)
 
+
+# GETTING USER CALENDAR EVENTS
+
+
+@users_bp.post('/user_calendar_events')
+def get_user_calendar_events():
+    data = request.get_json()
+    if 'sub' not in data:
+        return jsonify({"error": "Missing 'sub' in request"}), 400
+
+    user = users_collection.find_one({"sub": data.get("sub")})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    access_token = user.get("accessToken")
+    if not access_token:
+        return jsonify({"error": "Missing access token"}), 400
+
+    user_timezone = get_user_timezone(access_token)
+    tz = pytz.timezone(user_timezone)
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    today = datetime.now(tz)
+    start_of_day = today.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    end_of_day = today.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+
+    params = {
+        "timeMin": start_of_day,
+        "timeMax": end_of_day,
+        "singleEvents": True,
+        "orderBy": "startTime"
+    }
+
+    response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/primary/events", headers=headers, params=params)
+
+    if response.status_code == 200:
+        events = response.json().get('items', [])
+        # Convert start and end times to the user's local timezone and format them
+        for event in events:
+            start_time = event.get('start').get('dateTime', event.get('start').get('date'))
+            end_time = event.get('end').get('dateTime', event.get('end').get('date'))
+            event['start']['dateTime'] = parse_time(start_time.split('T')[1][:5], datetime.fromisoformat(start_time.split('T')[0]), tz).isoformat()
+            event['end']['dateTime'] = parse_time(end_time.split('T')[1][:5], datetime.fromisoformat(end_time.split('T')[0]), tz).isoformat()
+        return jsonify(events), 200
+    else:
+        return jsonify({"error": "Failed to fetch events", "details": response.text}), response.status_code
