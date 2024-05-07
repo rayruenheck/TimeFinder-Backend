@@ -23,7 +23,7 @@ tasks_collection = db.tasks
 
 
 
-# CREATING AND UPDATING USER INFO
+# CREATING AND UPDATING TASK AND USER INFO
 
 
 @users_bp.post('/users')
@@ -76,7 +76,18 @@ def create_or_update_tasks():
         return jsonify(message="No changes made to task cluster"), 200
 
 
+@users_bp.get('/get-tasks')
+def get_tasks():
+    sub = request.args.get('sub')
+    if not sub:
+        return jsonify({"message": "Missing 'sub' in request"}), 400
 
+    # Retrieve tasks for the given 'sub'
+    tasks_data = tasks_collection.find_one({"sub": sub})
+    if not tasks_data:
+        return jsonify({"message": "No tasks found for the user"}), 404
+
+    return jsonify({"tasks": tasks_data.get('tasks', [])}), 200
 
 
 
@@ -98,6 +109,25 @@ def update_concentration_time():
     )
     return jsonify({"status": "success", "message": "Concentration times updated.", "concentration_time": {"start": start, "end": end}})
 
+@users_bp.route('/update-completion', methods=['POST'])
+def update_task_completion():
+    data = request.get_json()
+    if not data or 'id' not in data or 'isCompleted' not in data:
+        return jsonify({"status": "error", "message": "Invalid data provided."}), 400
+
+    task_id = data['id']
+    is_completed = data['isCompleted']
+
+    # Update the task's 'isCompleted' status in the database
+    result = tasks_collection.update_one(
+        {"tasks.id": task_id},  # Assuming tasks are stored with an 'id' field in an array under a document
+        {"$set": {"tasks.$.isCompleted": is_completed}}
+    )
+
+    if result.modified_count > 0:
+        return jsonify({"status": "success", "message": "Task updated successfully."}), 200
+    else:
+        return jsonify({"status": "error", "message": "Task not found or no changes made."}), 404
 
 # SCHEDULING AND SCHEDULING LOGIC
 
@@ -136,6 +166,22 @@ def create_calendar_event(access_token, calendar_id, event_details):
     response = requests.post(url, headers=headers, json=event_details)
     return response.json()
 
+@users_bp.route('/schedule_notifications', methods=['POST'])
+def handle_schedule_notifications():
+    data = request.get_json()
+    user = users_collection.find_one({"sub": data.get("sub")})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    access_token = user.get("accessToken")
+    if not access_token:
+        return jsonify({"error": "Missing access token"}), 400
+
+    user_timezone = get_user_timezone(access_token)
+    responses = schedule_notification_reminders(access_token, user_timezone)
+    return jsonify({"scheduled_notifications": responses})
+
+
 
 @users_bp.post('/schedule_tasks')
 def schedule_tasks():
@@ -144,37 +190,43 @@ def schedule_tasks():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    tasks = tasks_collection.find_one({"sub": data.get("sub"), "date": datetime.now().strftime("%Y-%m-%d")})
-    if not tasks or 'tasks' not in tasks:
+    tasks_data = tasks_collection.find_one({"sub": data.get("sub"), "tasks.isCompleted": False})
+    if not tasks_data or 'tasks' not in tasks_data:
         return jsonify({"error": "No tasks found for today"}), 404
 
     access_token = user.get("accessToken")
     if not access_token:
         return jsonify({"error": "Missing access token"}), 400
 
-   
     user_timezone = get_user_timezone(access_token)
     tz = pytz.timezone(user_timezone)
 
-    sorted_tasks = sort_tasks(tasks['tasks'])
+    sorted_tasks = sort_tasks(tasks_data['tasks'])
+    top_tasks = sorted_tasks[:5]  
     events = find_optimal_slots(access_token)
-    scheduled_tasks = schedule_tasks_in_slots(sorted_tasks, events)
+    scheduled_tasks = schedule_tasks_in_slots(top_tasks, events)
 
-    
-    calendar_id = 'primary'  # or user's email
+    calendar_id = 'primary'
     event_responses = []
     for task in scheduled_tasks:
         start_time = parse_time(task['start_time'].split(' ')[1], datetime.strptime(task['start_time'].split(' ')[0], '%Y-%m-%d'), tz)
         end_time = parse_time(task['end_time'].split(' ')[1], datetime.strptime(task['end_time'].split(' ')[0], '%Y-%m-%d'), tz)
         event_details = {
-            'summary': task['task'],
+            'summary': f"{task['task']} 💙 TimeFinder",
             'start': {'dateTime': start_time.isoformat(), 'timeZone': user_timezone},
-            'end': {'dateTime': end_time.isoformat(), 'timeZone': user_timezone}
+            'end': {'dateTime': end_time.isoformat(), 'timeZone': user_timezone},
+            'colorId': '5'  
         }
         response = create_calendar_event(access_token, calendar_id, event_details)
         event_responses.append(response)
 
-    return jsonify({"scheduled_tasks": scheduled_tasks, "calendar_responses": event_responses})
+        
+        tasks_collection.update_one(
+            {"sub": data.get("sub"), 'tasks.id' : task['id']},
+            {"$set": {"tasks.$.isScheduled": True}}
+        )
+
+    return jsonify({"scheduled_tasks": [task['task'] for task in scheduled_tasks], "calendar_responses": event_responses})
 
 
 def find_optimal_slots(access_token):
@@ -259,7 +311,7 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
             target_slots = [slot for slot in available_slots if slot['concentration_time'] and slot['available']]
         elif task['concentration'] == 'low':
             target_slots = [slot for slot in available_slots if not slot['concentration_time'] and slot['available']]
-        else:  # Medium concentration tasks are deferred
+        else:  
             medium_concentration_tasks.append(task)
             continue
 
@@ -294,7 +346,10 @@ def schedule_task(task, slot, scheduled_tasks, available_slots):
     scheduled_tasks.append({
         'task': task['name'],
         'start_time': start_time,
-        'end_time': end_time
+        'end_time': end_time,
+        'id' : task['id'],
+        'isCompleted' : task['isCompleted'],
+        'isScheduled' : task['isScheduled']
     })
     
     mark_slots_as_used(task, slot, available_slots)
@@ -339,7 +394,6 @@ def calculate_end_time(start_time_str, task_duration_minutes):
 
 def update_slot_availability(slots, chosen_slot, task_time):
     """Update slot availability after scheduling a task."""
-    # Reduce the duration of the chosen slot
     start_time = chosen_slot['start']
     end_time = start_time + timedelta(minutes=int(task_time))
     chosen_slot['start'] = end_time
@@ -392,3 +446,61 @@ def get_user_calendar_events():
         return jsonify(events), 200
     else:
         return jsonify({"error": "Failed to fetch events", "details": response.text}), response.status_code
+
+
+def schedule_notification_reminders(access_token, user_timezone):
+    tz = pytz.timezone(user_timezone)
+    calendar_id = 'primary'
+    responses = []
+
+    start_date = datetime.now(tz)
+    end_date = start_date + timedelta(days=30)  # Schedule for the next month
+
+    current_date = start_date
+    while current_date <= end_date:
+        if current_date.weekday() < 5:  # Weekday check, Monday is 0 and Friday is 4
+            times = ["07:45", "20:15"]  # Notification times
+            for time_str in times:
+                event_time = tz.localize(datetime.combine(current_date.date(), datetime.strptime(time_str, "%H:%M").time()))
+                event_end_time = event_time + timedelta(minutes=15)  # 15 minutes long notification
+
+                # Define the event details with a conditional summary
+                summary = "Confirm Scheduled Tasks 💙 TimeFinder" if time_str == "07:45" else "Review Scheduled Tasks 💙 TimeFinder"
+                event_details = {
+                    'summary': summary,
+                    'start': {'dateTime': event_time.isoformat()},
+                    'end': {'dateTime': event_end_time.isoformat()},
+                    'reminders': {'useDefault': False, 'overrides': [{'method': 'popup', 'minutes': 10}]}
+                }
+
+                # Check if this event already exists
+                if not event_already_scheduled(access_token, calendar_id, event_time, event_end_time):
+                    response = create_calendar_event(access_token, calendar_id, event_details)
+                    responses.append(response)
+
+        current_date += timedelta(days=1)
+
+    return responses
+
+def event_already_scheduled(access_token, calendar_id, start_time, end_time):
+    # Format times for the Google Calendar API
+    time_min = start_time.isoformat()
+    time_max = end_time.isoformat()
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    params = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "singleEvents": True
+    }
+    url = f"{GOOGLE_CALENDAR_API_BASE_URL}/calendars/{calendar_id}/events"
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        events = response.json().get('items', [])
+        for event in events:
+            if event['start']['dateTime'] == time_min and event['end']['dateTime'] == time_max:
+                return True
+    return False
