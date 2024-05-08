@@ -142,19 +142,17 @@ def parse_time(time_str, date, tz):
 
 
 def get_concentration_time(access_token):
-    
     user_data = users_collection.find_one({"accessToken": access_token})
     if user_data and "concentration_time" in user_data:
         times = user_data["concentration_time"]
         return (times["start"], times["end"])
     return None
 
+
 def get_user_timezone(access_token):
-    
     headers = {"Authorization": f"Bearer {access_token}"}
     response = requests.get(f"{GOOGLE_CALENDAR_API_BASE_URL}/users/me/calendarList/primary", headers=headers)
     return response.json().get('timeZone', 'UTC') if response.status_code == 200 else 'UTC'
-
 
 
 def create_calendar_event(access_token, calendar_id, event_details):
@@ -165,6 +163,7 @@ def create_calendar_event(access_token, calendar_id, event_details):
     }
     response = requests.post(url, headers=headers, json=event_details)
     return response.json()
+
 
 @users_bp.route('/schedule_notifications', methods=['POST'])
 def handle_schedule_notifications():
@@ -180,7 +179,6 @@ def handle_schedule_notifications():
     user_timezone = get_user_timezone(access_token)
     responses = schedule_notification_reminders(access_token, user_timezone)
     return jsonify({"scheduled_notifications": responses})
-
 
 
 @users_bp.post('/schedule_tasks')
@@ -202,7 +200,7 @@ def schedule_tasks():
     tz = pytz.timezone(user_timezone)
 
     sorted_tasks = sort_tasks(tasks_data['tasks'])
-    top_tasks = sorted_tasks[:5]  
+    top_tasks = sorted_tasks[:5]
     events = find_optimal_slots(access_token)
     scheduled_tasks = schedule_tasks_in_slots(top_tasks, events)
 
@@ -215,14 +213,13 @@ def schedule_tasks():
             'summary': f"{task['task']} 💙 TimeFinder",
             'start': {'dateTime': start_time.isoformat(), 'timeZone': user_timezone},
             'end': {'dateTime': end_time.isoformat(), 'timeZone': user_timezone},
-            'colorId': '5'  
+            'colorId': '5'
         }
         response = create_calendar_event(access_token, calendar_id, event_details)
         event_responses.append(response)
 
-        
         tasks_collection.update_one(
-            {"sub": data.get("sub"), 'tasks.id' : task['id']},
+            {"sub": data.get("sub"), 'tasks.id': task['id']},
             {"$set": {"tasks.$.isScheduled": True}}
         )
 
@@ -245,21 +242,22 @@ def find_optimal_slots(access_token):
     slots = [(local_timezone.localize(datetime.strptime(f"{today} 08:00", '%Y-%m-%d %H:%M')),
               local_timezone.localize(datetime.strptime(f"{today} 20:00", '%Y-%m-%d %H:%M')))]
 
+    buffer_minutes = 10
+    buffer_duration = timedelta(minutes=buffer_minutes)
+
     for event in events:
-        event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone)
-        event_end = datetime.fromisoformat(event['end']['dateTime']).astimezone(local_timezone)
-        event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone)
-        event_end = datetime.fromisoformat(event['end']['dateTime']).astimezone(local_timezone)
+        event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone) - buffer_duration
+        event_end = datetime.fromisoformat(event['end']['dateTime']).astimezone(local_timezone) + buffer_duration
+
         new_slots = []
         for slot in slots:
-            new_slots.extend(adjust_slot_for_event(slot, event_start, event_end))
             new_slots.extend(adjust_slot_for_event(slot, event_start, event_end))
         slots = new_slots
 
     return calculate_slot_status(slots, access_token, user_timezone)
 
+
 def calculate_slot_status(slots, access_token, timezone):
-    
     all_slots = []
     user_concentration_times = get_concentration_time(access_token)
     tz = pytz.timezone(timezone)
@@ -282,12 +280,12 @@ def calculate_slot_status(slots, access_token, timezone):
                 'concentration_time': is_concentration_time
             })
             current_time += timedelta(minutes=30)
-    
 
     return all_slots
 
+
 def adjust_slot_for_event(slot, event_start, event_end):
-   
+    """Adjust slots based on event times with a buffer period."""
     slot_start, slot_end = slot
     new_slots = []
     if slot_start < event_start:
@@ -296,22 +294,22 @@ def adjust_slot_for_event(slot, event_start, event_end):
         new_slots.append((max(slot_start, event_end), slot_end))
     return new_slots if new_slots else [slot]
 
-def sort_tasks(tasks):
 
-    priority_map = {'high': 3, 'medium': 2, 'low': 1}  
+def sort_tasks(tasks):
+    priority_map = {'high': 3, 'medium': 2, 'low': 1}
     return sorted(tasks, key=lambda task: priority_map[task['priority']], reverse=True)
+
 
 def schedule_tasks_in_slots(sorted_tasks, available_slots):
     scheduled_tasks = []
     medium_concentration_tasks = []
 
-    
     for task in sorted_tasks:
         if task['concentration'] == 'high':
             target_slots = [slot for slot in available_slots if slot['concentration_time'] and slot['available']]
         elif task['concentration'] == 'low':
             target_slots = [slot for slot in available_slots if not slot['concentration_time'] and slot['available']]
-        else:  
+        else:
             medium_concentration_tasks.append(task)
             continue
 
@@ -320,9 +318,7 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
                 schedule_task(task, slot, scheduled_tasks, available_slots)
                 break
 
-    
     for task in medium_concentration_tasks:
-       
         target_slots = [slot for slot in available_slots if slot['concentration_time'] and slot['available']]
         scheduled = False
         for slot in target_slots:
@@ -331,7 +327,6 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
                 scheduled = True
                 break
 
-        
         if not scheduled:
             for slot in [slot for slot in available_slots if slot['available']]:
                 if fits_time_slot(task, slot, available_slots):
@@ -339,69 +334,67 @@ def schedule_tasks_in_slots(sorted_tasks, available_slots):
                     break
 
     return scheduled_tasks
-def schedule_task(task, slot, scheduled_tasks, available_slots):
-    
-    start_time = slot['start'].strftime('%Y-%m-%d %H:%M:%S')
-    end_time = (slot['start'] + timedelta(minutes=int(task['time']))).strftime('%Y-%m-%d %H:%M:%S')
-    scheduled_tasks.append({
-        'task': task['name'],
-        'start_time': start_time,
-        'end_time': end_time,
-        'id' : task['id'],
-        'isCompleted' : task['isCompleted'],
-        'isScheduled' : task['isScheduled']
-    })
-    
-    mark_slots_as_used(task, slot, available_slots)
 
-def mark_slots_as_used(task, chosen_slot, slots):
-    """Mark the chosen slot and necessary consecutive slots as used after scheduling a task."""
-    task_duration = timedelta(minutes=int(task['time']))
-    accumulated_time = timedelta()
-    start_index = slots.index(chosen_slot)
-    
-    for i in range(start_index, len(slots)):
-        if accumulated_time >= task_duration:
-            break
-        if slots[i]['available']:
-            slots[i]['available'] = False
-            accumulated_time += slots[i]['end'] - slots[i]['start']
 
 def fits_time_slot(task, slot, available_slots):
     """Check if the task can be scheduled starting from this slot, potentially using multiple slots."""
+    buffer_minutes = 10
+    buffer_duration = timedelta(minutes=buffer_minutes)
     task_duration = timedelta(minutes=int(task['time']))
+    required_duration = task_duration + buffer_duration * 2  # Buffer on both ends
+
     start_index = available_slots.index(slot)
     accumulated_time = timedelta()
 
-    
     for i in range(start_index, len(available_slots)):
         if not available_slots[i]['available']:
             break
         current_slot_duration = available_slots[i]['end'] - available_slots[i]['start']
         accumulated_time += current_slot_duration
-        if accumulated_time >= task_duration:
+        if accumulated_time >= required_duration:
             return True
     return False
 
+def mark_slots_as_used(start_time, end_time, slots):
+    """Mark slots as used, including a 10-minute buffer."""
+    buffer_minutes = 10
+    buffer_duration = timedelta(minutes=buffer_minutes)
+
+    adjusted_start = start_time - buffer_duration
+    adjusted_end = end_time + buffer_duration
+
+    for slot in slots:
+        slot_start = slot['start']
+        slot_end = slot['end']
+        if slot_start < adjusted_end and slot_end > adjusted_start:
+            slot['available'] = False
+
+def schedule_task(task, slot, scheduled_tasks, available_slots):
+    """Schedule a task in the given slot with a 10-minute buffer before and after."""
+    buffer_minutes = 10
+    buffer_duration = timedelta(minutes=buffer_minutes)
+
+    start_time = slot['start'] + buffer_duration  # Shift start time forward by the buffer
+    end_time = start_time + timedelta(minutes=int(task['time']))
+
+    scheduled_tasks.append({
+        'task': task['name'],
+        'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'end_time': end_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'id': task['id'],
+        'isCompleted': task['isCompleted'],
+        'isScheduled': task['isScheduled']
+    })
+
+    # Update slots as used including buffer time
+    mark_slots_as_used(start_time, end_time, available_slots)
+    
 def calculate_end_time(start_time_str, task_duration_minutes):
     """Calculate the end time of a task given its start time and duration in minutes."""
     start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
     task_duration = timedelta(minutes=int(task_duration_minutes))
     end_time = start_time + task_duration
     return end_time.strftime('%Y-%m-%d %H:%M:%S')
-
-
-
-def update_slot_availability(slots, chosen_slot, task_time):
-    """Update slot availability after scheduling a task."""
-    start_time = chosen_slot['start']
-    end_time = start_time + timedelta(minutes=int(task_time))
-    chosen_slot['start'] = end_time
-    if chosen_slot['start'] >= chosen_slot['end']:
-        slots.remove(chosen_slot)
-
-
-# GETTING USER CALENDAR EVENTS
 
 
 @users_bp.post('/user_calendar_events')
@@ -437,7 +430,6 @@ def get_user_calendar_events():
 
     if response.status_code == 200:
         events = response.json().get('items', [])
-        # Convert start and end times to the user's local timezone and format them
         for event in events:
             start_time = event.get('start').get('dateTime', event.get('start').get('date'))
             end_time = event.get('end').get('dateTime', event.get('end').get('date'))
@@ -454,26 +446,28 @@ def schedule_notification_reminders(access_token, user_timezone):
     responses = []
 
     start_date = datetime.now(tz)
-    end_date = start_date + timedelta(days=30)  # Schedule for the next month
+    end_date = start_date + timedelta(days=30)
 
     current_date = start_date
     while current_date <= end_date:
-        if current_date.weekday() < 5:  # Weekday check, Monday is 0 and Friday is 4
-            times = ["07:45", "20:15"]  # Notification times
+        if current_date.weekday() < 5:
+            times = ["07:45", "20:15"]
             for time_str in times:
                 event_time = tz.localize(datetime.combine(current_date.date(), datetime.strptime(time_str, "%H:%M").time()))
-                event_end_time = event_time + timedelta(minutes=15)  # 15 minutes long notification
+                event_end_time = event_time + timedelta(minutes=15)
 
-                # Define the event details with a conditional summary
-                summary = "Confirm Scheduled Tasks 💙 TimeFinder" if time_str == "07:45" else "Review Scheduled Tasks 💙 TimeFinder"
+                summary = "Confirm Scheduled Tasks 💙 TimeFinder" if time_str == "07:45" else "Check TimeFinder"
+                description_url = "http://localhost:3000/googleconnect"
+                description = f"Click [here]({description_url}) to visit TimeFinder and manage your tasks!"
+
                 event_details = {
                     'summary': summary,
+                    'description': description,
                     'start': {'dateTime': event_time.isoformat()},
                     'end': {'dateTime': event_end_time.isoformat()},
                     'reminders': {'useDefault': False, 'overrides': [{'method': 'popup', 'minutes': 10}]}
                 }
 
-                # Check if this event already exists
                 if not event_already_scheduled(access_token, calendar_id, event_time, event_end_time):
                     response = create_calendar_event(access_token, calendar_id, event_details)
                     responses.append(response)
@@ -482,8 +476,8 @@ def schedule_notification_reminders(access_token, user_timezone):
 
     return responses
 
+
 def event_already_scheduled(access_token, calendar_id, start_time, end_time):
-    # Format times for the Google Calendar API
     time_min = start_time.isoformat()
     time_max = end_time.isoformat()
 
