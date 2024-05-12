@@ -246,7 +246,7 @@ def find_optimal_slots(access_token):
     buffer_duration = timedelta(minutes=buffer_minutes)
 
     for event in events:
-        event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone) - buffer_duration
+        event_start = datetime.fromisoformat(event['start']['dateTime']).astimezone(local_timezone) 
         event_end = datetime.fromisoformat(event['end']['dateTime']).astimezone(local_timezone) + buffer_duration
 
         new_slots = []
@@ -341,7 +341,7 @@ def fits_time_slot(task, slot, available_slots):
     buffer_minutes = 10
     buffer_duration = timedelta(minutes=buffer_minutes)
     task_duration = timedelta(minutes=int(task['time']))
-    required_duration = task_duration + buffer_duration * 2  # Buffer on both ends
+    required_duration = task_duration + buffer_duration  
 
     start_index = available_slots.index(slot)
     accumulated_time = timedelta()
@@ -360,7 +360,7 @@ def mark_slots_as_used(start_time, end_time, slots):
     buffer_minutes = 10
     buffer_duration = timedelta(minutes=buffer_minutes)
 
-    adjusted_start = start_time - buffer_duration
+    adjusted_start = start_time 
     adjusted_end = end_time + buffer_duration
 
     for slot in slots:
@@ -370,11 +370,9 @@ def mark_slots_as_used(start_time, end_time, slots):
             slot['available'] = False
 
 def schedule_task(task, slot, scheduled_tasks, available_slots):
-    """Schedule a task in the given slot with a 10-minute buffer before and after."""
-    buffer_minutes = 10
-    buffer_duration = timedelta(minutes=buffer_minutes)
+   
 
-    start_time = slot['start'] + buffer_duration  # Shift start time forward by the buffer
+    start_time = slot['start']   
     end_time = start_time + timedelta(minutes=int(task['time']))
 
     scheduled_tasks.append({
