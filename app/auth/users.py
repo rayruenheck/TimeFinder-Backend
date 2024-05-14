@@ -463,7 +463,7 @@ def schedule_notification_reminders(access_token, user_timezone):
                     'description': description,
                     'start': {'dateTime': event_time.isoformat()},
                     'end': {'dateTime': event_end_time.isoformat()},
-                    'reminders': {'useDefault': False, 'overrides': [{'method': 'popup', 'minutes': 10}]}
+                    'reminders': {'useDefault': False, 'overrides': [{'method': 'popup', 'minutes': 15}]}
                 }
 
                 if not event_already_scheduled(access_token, calendar_id, event_time, event_end_time):
