@@ -64,7 +64,7 @@ def create_or_update_tasks():
 
     # Append new tasks to the existing tasks array for the same day and user
     result = tasks_collection.update_one(
-        {"sub": sub, "date": today_date},  # Ensure the update is for the same day and user
+        {"sub": sub},  
         {"$addToSet": {"tasks": {"$each": tasks}}},  # Append all new tasks
         upsert=True
     )
