@@ -220,7 +220,11 @@ def schedule_tasks():
 
         tasks_collection.update_one(
             {"sub": data.get("sub"), 'tasks.id': task['id']},
-            {"$set": {"tasks.$.isScheduled": True}}
+            {"$set": {
+            "tasks.$.isScheduled": True,
+            "tasks.$.start_time": start_time,
+            "tasks.$.end_time": end_time
+        }}
         )
 
     return jsonify({"scheduled_tasks": [task['task'] for task in scheduled_tasks], "calendar_responses": event_responses})
