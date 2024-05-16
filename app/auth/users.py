@@ -189,7 +189,7 @@ def schedule_tasks():
         return jsonify({"error": "User not found"}), 404
 
     # Fetch documents where at least one task is incomplete
-    tasks_data = tasks_collection.find_one({"sub": data.get("sub"), "tasks.isCompleted": {"$ne": True}})
+    tasks_data = tasks_collection.find_one({"sub": data.get("sub")})
     if not tasks_data or 'tasks' not in tasks_data:
         return jsonify({"error": "No incomplete tasks found"}), 404
 
