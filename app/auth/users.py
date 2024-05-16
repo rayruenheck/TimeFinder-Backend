@@ -188,9 +188,10 @@ def schedule_tasks():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    tasks_data = tasks_collection.find_one({"sub": data.get("sub"), "tasks.isCompleted": False})
+    # Fetch documents where at least one task is incomplete
+    tasks_data = tasks_collection.find_one({"sub": data.get("sub"), "tasks.isCompleted": {"$ne": True}})
     if not tasks_data or 'tasks' not in tasks_data:
-        return jsonify({"error": "No tasks found for today"}), 404
+        return jsonify({"error": "No incomplete tasks found"}), 404
 
     access_token = user.get("accessToken")
     if not access_token:
@@ -199,7 +200,9 @@ def schedule_tasks():
     user_timezone = get_user_timezone(access_token)
     tz = pytz.timezone(user_timezone)
 
-    sorted_tasks = sort_tasks(tasks_data['tasks'])
+    # Filter tasks to include only incomplete ones
+    incomplete_tasks = [task for task in tasks_data['tasks'] if not task.get('isCompleted')]
+    sorted_tasks = sort_tasks(incomplete_tasks)
     top_tasks = sorted_tasks[:5]
     events = find_optimal_slots(access_token)
     scheduled_tasks = schedule_tasks_in_slots(top_tasks, events)
@@ -221,13 +224,14 @@ def schedule_tasks():
         tasks_collection.update_one(
             {"sub": data.get("sub"), 'tasks.id': task['id']},
             {"$set": {
-            "tasks.$.isScheduled": True,
-            "tasks.$.start_time": start_time,
-            "tasks.$.end_time": end_time
-        }}
+                "tasks.$.isScheduled": True,
+                "tasks.$.start_time": start_time,
+                "tasks.$.end_time": end_time
+            }}
         )
 
     return jsonify({"scheduled_tasks": [task['task'] for task in scheduled_tasks], "calendar_responses": event_responses})
+
 
 
 def find_optimal_slots(access_token):
