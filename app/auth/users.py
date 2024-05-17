@@ -75,7 +75,28 @@ def create_or_update_tasks():
     else:
         return jsonify(message="No changes made to task cluster"), 200
 
+@users_bp.post('/add-task')
+def add_task():
+    data = request.get_json()
+    
+    if not data or 'task' not in data or 'sub' not in data:
+        return jsonify(message="Missing required data"), 400
+    
+    task = data['task']
+    sub = data['sub']
+    
+    # Add the task to the tasks collection for the specified user
+    result = tasks_collection.update_one(
+        {"sub": sub},
+        {"$addToSet": {"tasks": task}},
+        upsert=True
+    )
 
+    if result.matched_count > 0 or result.upserted_id is not None:
+        return jsonify(message="Task added successfully"), 201
+    else:
+        return jsonify(message="Task not added"), 500
+    
 @users_bp.get('/get-tasks')
 def get_tasks():
     sub = request.args.get('sub')
