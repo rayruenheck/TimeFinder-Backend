@@ -1,26 +1,18 @@
 from flask import Flask
-import os
-from dotenv import load_dotenv
-from flask_cors import CORS
-from flask_pymongo import PyMongo
-from app.auth.users import users_bp
 
 
-load_dotenv()
+def create_app():
+    app = Flask(__name__)
 
-app = Flask(__name__)
-app.config["MONGO_URI"] = os.getenv("MONGODB_URI")
-app.secret_key = os.getenv("SECRET_KEY")
+    from .users_routes import users_bp
+    from .tasks_routes import tasks_bp
+    from .schedule_routes import schedule_bp
+    from .health_routes import health_bp
 
+    # Register blueprints
+    app.register_blueprint(users_bp)
+    app.register_blueprint(tasks_bp)
+    app.register_blueprint(schedule_bp)
+    app.register_blueprint(health_bp)
 
-
-CORS(app, supports_credentials=True)
-app.config['DEBUG'] = True
-
-mongo = PyMongo(app)
-
-app.register_blueprint(users_bp)
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    return app
