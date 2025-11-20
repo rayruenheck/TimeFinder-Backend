@@ -73,7 +73,6 @@ def event_already_scheduled(access_token, calendar_id, start_time, end_time) -> 
     try:
         events = calendar_client.list_events(access_token, calendar_id, params)
     except Exception:
-        # If we can't check, assume "not scheduled" so we don't break scheduling.
         return False
 
     for event in events:

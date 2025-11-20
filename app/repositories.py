@@ -32,7 +32,7 @@ class UserRepository:
             {"$set": {"concentration_time": {"start": start, "end": end}}}
         )
     
-    class TaskRepository:
+class TaskRepository:
         def __init__(self, collection: Collection):
             self.collection = collection
         

@@ -9,7 +9,7 @@ def create_app():
     from .schedule_routes import schedule_bp
     from .health_routes import health_bp
 
-    # Register blueprints
+    
     app.register_blueprint(users_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(schedule_bp)
