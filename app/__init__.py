@@ -3,26 +3,35 @@ import os
 from dotenv import load_dotenv
 from flask_cors import CORS
 from flask_pymongo import PyMongo
-from app.auth.users import users_bp
-
 
 load_dotenv()
 
-app = Flask(__name__)
-app.config["MONGO_URI"] = os.getenv("MONGODB_URI")
-app.secret_key = os.getenv("SECRET_KEY")
+def create_app():
+    app = Flask(__name__)
 
-# CORS configuration - allows frontend to make requests
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-CORS(app, origins=[frontend_url], supports_credentials=True)
+    # MongoDB configuration
+    app.config["MONGO_URI"] = os.getenv("MONGODB_URI")
+    app.secret_key = os.getenv("SECRET_KEY")
 
-# Debug mode - only enabled in development
-app.config['DEBUG'] = os.getenv('FLASK_ENV') != 'production'
+    # CORS configuration - allows frontend to make requests
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    CORS(app, origins=[frontend_url], supports_credentials=True)
 
-mongo = PyMongo(app)
+    # Debug mode - only enabled in development
+    app.config['DEBUG'] = os.getenv('FLASK_ENV') != 'production'
 
-app.register_blueprint(users_bp)
+    # Initialize MongoDB
+    mongo = PyMongo(app)
 
+    # Register blueprints
+    from .users_routes import users_bp
+    from .tasks_routes import tasks_bp
+    from .schedule_routes import schedule_bp
+    from .health_routes import health_bp
 
-if __name__ == '__main__':
-    app.run(debug=True)
+    app.register_blueprint(users_bp)
+    app.register_blueprint(tasks_bp)
+    app.register_blueprint(schedule_bp)
+    app.register_blueprint(health_bp)
+
+    return app
