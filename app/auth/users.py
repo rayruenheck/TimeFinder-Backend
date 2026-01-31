@@ -484,7 +484,7 @@ def schedule_notification_reminders(access_token, user_timezone):
                 event_end_time = event_time + timedelta(minutes=15)
 
                 summary = "Confirm Scheduled Tasks 💙 TimeFinder" if time_str == "07:45" else "Check TimeFinder"
-                description_url = "http://localhost:3000/googleconnect"
+                description_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/googleconnect"
                 description = f"Click [here]({description_url}) to visit TimeFinder and manage your tasks!"
 
                 event_details = {

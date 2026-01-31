@@ -12,10 +12,12 @@ app = Flask(__name__)
 app.config["MONGO_URI"] = os.getenv("MONGODB_URI")
 app.secret_key = os.getenv("SECRET_KEY")
 
+# CORS configuration - allows frontend to make requests
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+CORS(app, origins=[frontend_url], supports_credentials=True)
 
-
-CORS(app, supports_credentials=True)
-app.config['DEBUG'] = True
+# Debug mode - only enabled in development
+app.config['DEBUG'] = os.getenv('FLASK_ENV') != 'production'
 
 mongo = PyMongo(app)
 
